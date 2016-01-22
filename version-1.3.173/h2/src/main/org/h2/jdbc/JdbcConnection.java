@@ -26,6 +26,7 @@ import java.sql.SQLXML;
 import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import org.h2.command.CommandInterface;
@@ -46,7 +47,7 @@ import org.h2.value.ValueInt;
 import org.h2.value.ValueNull;
 import org.h2.value.ValueString;
 
-/*## Java 1.7 ##
+//## Java 1.7 ##
 import java.util.concurrent.Executor;
 //*/
 
@@ -82,6 +83,7 @@ public class JdbcConnection extends TraceObject implements Connection {
     private final CompareMode compareMode = CompareMode.getInstance(null, 0, false);
     private final CloseWatcher watcher;
     private int queryTimeoutCache = -1;
+    private Map<String,String> clientInfo = new HashMap<String,String>();
 
     /**
      * INTERNAL
@@ -109,8 +111,8 @@ public class JdbcConnection extends TraceObject implements Connection {
             this.user = ci.getUserName();
             if (isInfoEnabled()) {
                 trace.infoCode("Connection " + getTraceObjectName()
-                        + " = DriverManager.getConnection(" + quote(ci.getOriginalURL())
-                        + ", " + quote(user) + ", \"\");");
+                + " = DriverManager.getConnection(" + quote(ci.getOriginalURL())
+                + ", " + quote(user) + ", \"\");");
             }
             this.url = ci.getURL();
             closeOld();
@@ -678,18 +680,18 @@ public class JdbcConnection extends TraceObject implements Connection {
             checkClosed();
             int lockMode;
             switch(level) {
-            case Connection.TRANSACTION_READ_UNCOMMITTED:
-                lockMode = Constants.LOCK_MODE_OFF;
-                break;
-            case Connection.TRANSACTION_READ_COMMITTED:
-                lockMode = Constants.LOCK_MODE_READ_COMMITTED;
-                break;
-            case Connection.TRANSACTION_REPEATABLE_READ:
-            case Connection.TRANSACTION_SERIALIZABLE:
-                lockMode = Constants.LOCK_MODE_TABLE;
-                break;
-            default:
-                throw DbException.getInvalidValueException("level", level);
+                case Connection.TRANSACTION_READ_UNCOMMITTED:
+                    lockMode = Constants.LOCK_MODE_OFF;
+                    break;
+                case Connection.TRANSACTION_READ_COMMITTED:
+                    lockMode = Constants.LOCK_MODE_READ_COMMITTED;
+                    break;
+                case Connection.TRANSACTION_REPEATABLE_READ:
+                case Connection.TRANSACTION_SERIALIZABLE:
+                    lockMode = Constants.LOCK_MODE_TABLE;
+                    break;
+                default:
+                    throw DbException.getInvalidValueException("level", level);
             }
             commit();
             setLockMode = prepareCommand("SET LOCK_MODE ?", setLockMode);
@@ -760,18 +762,18 @@ public class JdbcConnection extends TraceObject implements Connection {
             result.close();
             int transactionIsolationLevel;
             switch(lockMode) {
-            case Constants.LOCK_MODE_OFF:
-                transactionIsolationLevel = Connection.TRANSACTION_READ_UNCOMMITTED;
-                break;
-            case Constants.LOCK_MODE_READ_COMMITTED:
-                transactionIsolationLevel = Connection.TRANSACTION_READ_COMMITTED;
-                break;
-            case Constants.LOCK_MODE_TABLE:
-            case Constants.LOCK_MODE_TABLE_GC:
-                transactionIsolationLevel = Connection.TRANSACTION_SERIALIZABLE;
-                break;
-            default:
-                throw DbException.throwInternalError("lockMode:" + lockMode);
+                case Constants.LOCK_MODE_OFF:
+                    transactionIsolationLevel = Connection.TRANSACTION_READ_UNCOMMITTED;
+                    break;
+                case Constants.LOCK_MODE_READ_COMMITTED:
+                    transactionIsolationLevel = Connection.TRANSACTION_READ_COMMITTED;
+                    break;
+                case Constants.LOCK_MODE_TABLE:
+                case Constants.LOCK_MODE_TABLE_GC:
+                    transactionIsolationLevel = Connection.TRANSACTION_SERIALIZABLE;
+                    break;
+                default:
+                    throw DbException.throwInternalError("lockMode:" + lockMode);
             }
             return transactionIsolationLevel;
         } catch (Exception e) {
@@ -922,7 +924,7 @@ public class JdbcConnection extends TraceObject implements Connection {
             if (isDebugEnabled()) {
                 debugCodeAssign("CallableStatement", TraceObject.CALLABLE_STATEMENT, id,
                         "prepareCall(" + quote(sql) + ", " + resultSetType + ", " + resultSetConcurrency + ", "
-                        + resultSetHoldability + ")");
+                                + resultSetHoldability + ")");
             }
             checkTypeConcurrency(resultSetType, resultSetConcurrency);
             checkHoldability(resultSetHoldability);
@@ -1044,7 +1046,7 @@ public class JdbcConnection extends TraceObject implements Connection {
             if (isDebugEnabled()) {
                 debugCodeAssign("PreparedStatement", TraceObject.PREPARED_STATEMENT, id,
                         "prepareStatement(" + quote(sql) + ", " + resultSetType + ", " + resultSetConcurrency + ", "
-                        + resultSetHoldability + ")");
+                                + resultSetHoldability + ")");
             }
             checkTypeConcurrency(resultSetType, resultSetConcurrency);
             checkHoldability(resultSetHoldability);
@@ -1145,61 +1147,61 @@ public class JdbcConnection extends TraceObject implements Connection {
     private static int translateGetEnd(String sql, int i, char c) {
         int len = sql.length();
         switch(c) {
-        case '$': {
-            if (i < len - 1 && sql.charAt(i + 1) == '$' && (i == 0 || sql.charAt(i - 1) <= ' ')) {
-                int j = sql.indexOf("$$", i + 2);
+            case '$': {
+                if (i < len - 1 && sql.charAt(i + 1) == '$' && (i == 0 || sql.charAt(i - 1) <= ' ')) {
+                    int j = sql.indexOf("$$", i + 2);
+                    if (j < 0) {
+                        throw DbException.getSyntaxError(sql, i);
+                    }
+                    return j + 1;
+                }
+                return i;
+            }
+            case '\'': {
+                int j = sql.indexOf('\'', i + 1);
                 if (j < 0) {
                     throw DbException.getSyntaxError(sql, i);
                 }
-                return j + 1;
+                return j;
             }
-            return i;
-        }
-        case '\'': {
-            int j = sql.indexOf('\'', i + 1);
-            if (j < 0) {
-                throw DbException.getSyntaxError(sql, i);
-            }
-            return j;
-        }
-        case '"': {
-            int j = sql.indexOf('"', i + 1);
-            if (j < 0) {
-                throw DbException.getSyntaxError(sql, i);
-            }
-            return j;
-        }
-        case '/': {
-            checkRunOver(i+1, len, sql);
-            if (sql.charAt(i + 1) == '*') {
-                // block comment
-                int j = sql.indexOf("*/", i + 2);
+            case '"': {
+                int j = sql.indexOf('"', i + 1);
                 if (j < 0) {
                     throw DbException.getSyntaxError(sql, i);
                 }
-                i = j + 1;
-            } else if (sql.charAt(i + 1) == '/') {
-                // single line comment
-                i += 2;
-                while (i < len && (c = sql.charAt(i)) != '\r' && c != '\n') {
-                    i++;
-                }
+                return j;
             }
-            return i;
-        }
-        case '-': {
-            checkRunOver(i+1, len, sql);
-            if (sql.charAt(i + 1) == '-') {
-                // single line comment
-                i += 2;
-                while (i < len && (c = sql.charAt(i)) != '\r' && c != '\n') {
-                    i++;
+            case '/': {
+                checkRunOver(i+1, len, sql);
+                if (sql.charAt(i + 1) == '*') {
+                    // block comment
+                    int j = sql.indexOf("*/", i + 2);
+                    if (j < 0) {
+                        throw DbException.getSyntaxError(sql, i);
+                    }
+                    i = j + 1;
+                } else if (sql.charAt(i + 1) == '/') {
+                    // single line comment
+                    i += 2;
+                    while (i < len && (c = sql.charAt(i)) != '\r' && c != '\n') {
+                        i++;
+                    }
                 }
+                return i;
             }
-            return i;
-        }
-        default:
-            throw DbException.throwInternalError("c=" + c);
+            case '-': {
+                checkRunOver(i+1, len, sql);
+                if (sql.charAt(i + 1) == '-') {
+                    // single line comment
+                    i += 2;
+                    while (i < len && (c = sql.charAt(i)) != '\r' && c != '\n') {
+                        i++;
+                    }
+                }
+                return i;
+            }
+            default:
+                throw DbException.throwInternalError("c=" + c);
         }
     }
 
@@ -1238,97 +1240,97 @@ public class JdbcConnection extends TraceObject implements Connection {
         for (int i = 0; i < len; i++) {
             char c = sql.charAt(i);
             switch (c) {
-            case '\'':
-            case '"':
-            case '/':
-            case '-':
-                i = translateGetEnd(sql, i, c);
-                break;
-            case '{':
-                level++;
-                if (chars == null) {
-                    chars = sql.toCharArray();
-                }
-                chars[i] = ' ';
-                while (Character.isSpaceChar(chars[i])) {
-                    i++;
-                    checkRunOver(i, len, sql);
-                }
-                int start = i;
-                if (chars[i] >= '0' && chars[i] <= '9') {
-                    chars[i - 1] = '{';
-                    while (true) {
-                        checkRunOver(i, len, sql);
-                        c = chars[i];
-                        if (c == '}') {
-                            break;
-                        }
-                        switch (c) {
-                        case '\'':
-                        case '"':
-                        case '/':
-                        case '-':
-                            i = translateGetEnd(sql, i, c);
-                            break;
-                        default:
-                        }
-                        i++;
-                    }
-                    level--;
+                case '\'':
+                case '"':
+                case '/':
+                case '-':
+                    i = translateGetEnd(sql, i, c);
                     break;
-                } else if (chars[i] == '?') {
-                    i++;
-                    checkRunOver(i, len, sql);
-                    while (Character.isSpaceChar(chars[i])) {
-                        i++;
-                        checkRunOver(i, len, sql);
+                case '{':
+                    level++;
+                    if (chars == null) {
+                        chars = sql.toCharArray();
                     }
-                    if (sql.charAt(i) != '=') {
-                        throw DbException.getSyntaxError(sql, i, "=");
-                    }
-                    i++;
-                    checkRunOver(i, len, sql);
-                    while (Character.isSpaceChar(chars[i])) {
-                        i++;
-                        checkRunOver(i, len, sql);
-                    }
-                }
-                while (!Character.isSpaceChar(chars[i])) {
-                    i++;
-                    checkRunOver(i, len, sql);
-                }
-                int remove = 0;
-                if (found(sql, start, "fn")) {
-                    remove = 2;
-                } else if (found(sql, start, "escape")) {
-                    break;
-                } else if (found(sql, start, "call")) {
-                    break;
-                } else if (found(sql, start, "oj")) {
-                    remove = 2;
-                } else if (found(sql, start, "ts")) {
-                    remove = 2;
-                } else if (found(sql, start, "t")) {
-                    remove = 1;
-                } else if (found(sql, start, "d")) {
-                    remove = 1;
-                } else if (found(sql, start, "params")) {
-                    remove = "params".length();
-                }
-                for (i = start; remove > 0; i++, remove--) {
                     chars[i] = ' ';
-                }
-                break;
-            case '}':
-                if (--level < 0) {
-                    throw DbException.getSyntaxError(sql, i);
-                }
-                chars[i] = ' ';
-                break;
-            case '$':
-                i = translateGetEnd(sql, i, c);
-                break;
-            default:
+                    while (Character.isSpaceChar(chars[i])) {
+                        i++;
+                        checkRunOver(i, len, sql);
+                    }
+                    int start = i;
+                    if (chars[i] >= '0' && chars[i] <= '9') {
+                        chars[i - 1] = '{';
+                        while (true) {
+                            checkRunOver(i, len, sql);
+                            c = chars[i];
+                            if (c == '}') {
+                                break;
+                            }
+                            switch (c) {
+                                case '\'':
+                                case '"':
+                                case '/':
+                                case '-':
+                                    i = translateGetEnd(sql, i, c);
+                                    break;
+                                default:
+                            }
+                            i++;
+                        }
+                        level--;
+                        break;
+                    } else if (chars[i] == '?') {
+                        i++;
+                        checkRunOver(i, len, sql);
+                        while (Character.isSpaceChar(chars[i])) {
+                            i++;
+                            checkRunOver(i, len, sql);
+                        }
+                        if (sql.charAt(i) != '=') {
+                            throw DbException.getSyntaxError(sql, i, "=");
+                        }
+                        i++;
+                        checkRunOver(i, len, sql);
+                        while (Character.isSpaceChar(chars[i])) {
+                            i++;
+                            checkRunOver(i, len, sql);
+                        }
+                    }
+                    while (!Character.isSpaceChar(chars[i])) {
+                        i++;
+                        checkRunOver(i, len, sql);
+                    }
+                    int remove = 0;
+                    if (found(sql, start, "fn")) {
+                        remove = 2;
+                    } else if (found(sql, start, "escape")) {
+                        break;
+                    } else if (found(sql, start, "call")) {
+                        break;
+                    } else if (found(sql, start, "oj")) {
+                        remove = 2;
+                    } else if (found(sql, start, "ts")) {
+                        remove = 2;
+                    } else if (found(sql, start, "t")) {
+                        remove = 1;
+                    } else if (found(sql, start, "d")) {
+                        remove = 1;
+                    } else if (found(sql, start, "params")) {
+                        remove = "params".length();
+                    }
+                    for (i = start; remove > 0; i++, remove--) {
+                        chars[i] = ' ';
+                    }
+                    break;
+                case '}':
+                    if (--level < 0) {
+                        throw DbException.getSyntaxError(sql, i);
+                    }
+                    chars[i] = ' ';
+                    break;
+                case '$':
+                    i = translateGetEnd(sql, i, c);
+                    break;
+                default:
             }
         }
         if (level != 0) {
@@ -1352,19 +1354,19 @@ public class JdbcConnection extends TraceObject implements Connection {
 
     private static void checkTypeConcurrency(int resultSetType, int resultSetConcurrency) {
         switch (resultSetType) {
-        case ResultSet.TYPE_FORWARD_ONLY:
-        case ResultSet.TYPE_SCROLL_INSENSITIVE:
-        case ResultSet.TYPE_SCROLL_SENSITIVE:
-            break;
-        default:
-            throw DbException.getInvalidValueException("resultSetType", resultSetType);
+            case ResultSet.TYPE_FORWARD_ONLY:
+            case ResultSet.TYPE_SCROLL_INSENSITIVE:
+            case ResultSet.TYPE_SCROLL_SENSITIVE:
+                break;
+            default:
+                throw DbException.getInvalidValueException("resultSetType", resultSetType);
         }
         switch (resultSetConcurrency) {
-        case ResultSet.CONCUR_READ_ONLY:
-        case ResultSet.CONCUR_UPDATABLE:
-            break;
-        default:
-            throw DbException.getInvalidValueException("resultSetConcurrency", resultSetConcurrency);
+            case ResultSet.CONCUR_READ_ONLY:
+            case ResultSet.CONCUR_UPDATABLE:
+                break;
+            default:
+                throw DbException.getInvalidValueException("resultSetConcurrency", resultSetConcurrency);
         }
     }
 
@@ -1492,7 +1494,7 @@ public class JdbcConnection extends TraceObject implements Connection {
             try {
                 Value v = session.getDataHandler().getLobStorage().createClob(
                         new InputStreamReader(
-                        new ByteArrayInputStream(Utils.EMPTY_BYTES)), 0);
+                                new ByteArrayInputStream(Utils.EMPTY_BYTES)), 0);
                 return new JdbcClob(this, v, id);
             } finally {
                 afterWriting();
@@ -1539,7 +1541,7 @@ public class JdbcConnection extends TraceObject implements Connection {
             try {
                 Value v = session.getDataHandler().getLobStorage().createClob(
                         new InputStreamReader(
-                        new ByteArrayInputStream(Utils.EMPTY_BYTES)), 0);
+                                new ByteArrayInputStream(Utils.EMPTY_BYTES)), 0);
                 return new JdbcClob(this, v, id);
             } finally {
                 afterWriting();
@@ -1617,7 +1619,8 @@ public class JdbcConnection extends TraceObject implements Connection {
             }
             checkClosed();
             // we don't have any client properties, so just throw
-            throw new SQLClientInfoException();
+            //            throw new SQLClientInfoException();
+            this.clientInfo.put(name, value);
         } catch (Exception e) {
             throw convertToClientInfoException(logAndConvert(e));
         }
@@ -1645,7 +1648,10 @@ public class JdbcConnection extends TraceObject implements Connection {
             }
             checkClosed();
             // we don't have any client properties, so just throw
-            throw new SQLClientInfoException();
+            // throw new SQLClientInfoException();
+            for (final String name : properties.stringPropertyNames())
+                this.clientInfo.put(name, properties.getProperty(name));
+
         } catch (Exception e) {
             throw convertToClientInfoException(logAndConvert(e));
         }
@@ -1662,7 +1668,10 @@ public class JdbcConnection extends TraceObject implements Connection {
         try {
             debugCode("getClientInfo();");
             // we don't have any client properties, so return null
-            return null;
+            // return null;
+            Properties properties = new Properties();
+            properties.putAll(this.clientInfo);
+            return properties;
         } catch (Exception e) {
             throw logAndConvert(e);
         }
@@ -1681,7 +1690,8 @@ public class JdbcConnection extends TraceObject implements Connection {
             debugCodeCall("getClientInfo", name);
             checkClosed();
             // we don't have any client properties, so just throw
-            throw new SQLClientInfoException();
+            // throw new SQLClientInfoException();
+            return this.clientInfo.get(name);
         } catch (Exception e) {
             throw logAndConvert(e);
         }
@@ -1750,7 +1760,7 @@ public class JdbcConnection extends TraceObject implements Connection {
      *
      * @param schema the schema
      */
-/*## Java 1.7 ##
+    //## Java 1.7 ##
     public void setSchema(String schema) {
         // not supported
     }
@@ -1759,7 +1769,7 @@ public class JdbcConnection extends TraceObject implements Connection {
     /**
      * [Not supported]
      */
-/*## Java 1.7 ##
+    //## Java 1.7 ##
     public String getSchema() {
         return null;
     }
@@ -1770,7 +1780,7 @@ public class JdbcConnection extends TraceObject implements Connection {
      *
      * @param executor the executor used by this method
      */
-/*## Java 1.7 ##
+    //## Java 1.7 ##
     public void abort(Executor executor) {
         // not supported
     }
@@ -1782,7 +1792,7 @@ public class JdbcConnection extends TraceObject implements Connection {
      * @param executor the executor used by this method
      * @param milliseconds the TCP connection timeout
      */
-/*## Java 1.7 ##
+    //## Java 1.7 ##
     public void setNetworkTimeout(Executor executor, int milliseconds) {
         // not supported
     }
@@ -1791,7 +1801,7 @@ public class JdbcConnection extends TraceObject implements Connection {
     /**
      * [Not supported]
      */
-/*## Java 1.7 ##
+    //## Java 1.7 ##
     public int getNetworkTimeout() {
         return 0;
     }
@@ -1821,23 +1831,23 @@ public class JdbcConnection extends TraceObject implements Connection {
     Object convertToDefaultObject(Value v) {
         Object o;
         switch (v.getType()) {
-        case Value.CLOB: {
-            int id = getNextId(TraceObject.CLOB);
-            o = new JdbcClob(this, v, id);
-            break;
-        }
-        case Value.BLOB: {
-            int id = getNextId(TraceObject.BLOB);
-            o = new JdbcBlob(this, v, id);
-            break;
-        }
-        case Value.JAVA_OBJECT:
-            if (SysProperties.serializeJavaObject) {
-                o = Utils.deserialize(v.getBytesNoCopy());
+            case Value.CLOB: {
+                int id = getNextId(TraceObject.CLOB);
+                o = new JdbcClob(this, v, id);
                 break;
             }
-        default:
-            o = v.getObject();
+            case Value.BLOB: {
+                int id = getNextId(TraceObject.BLOB);
+                o = new JdbcBlob(this, v, id);
+                break;
+            }
+            case Value.JAVA_OBJECT:
+                if (SysProperties.serializeJavaObject) {
+                    o = Utils.deserialize(v.getBytesNoCopy());
+                    break;
+                }
+            default:
+                o = v.getObject();
         }
         return o;
     }
